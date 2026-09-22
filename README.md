@@ -4,12 +4,13 @@ Stack project **STK-10**. Read-only sync that turns Garmin Connect data into a
 compact, normalized record ChatGPT can use for nutrition, training and recovery
 context — with no manual reporting.
 
-**Current state: Phase 3 complete — the pipeline works end to end.** Logs in to
-Garmin, fetches today plus a rolling activity window, normalizes it, saves the
-snapshot to `data/latest.json`, and updates the **Fitness Live** page in The
-Nexus so ChatGPT can read it. Nothing is ever written back to Garmin.
+**Current state: Phase 4 complete — the pipeline works end to end and is
+hardened for unattended running.** Logs in to Garmin, fetches today plus a
+rolling activity window, normalizes it, saves the snapshot to
+`data/latest.json`, and updates the **Fitness Live** page in The Nexus so
+ChatGPT can read it. Nothing is ever written back to Garmin.
 
-Still to come: hardening (Phase 4) and hourly Android automation (Phase 5).
+Still to come: hourly Android automation (Phase 5).
 
 Read [PHASE0-FINDINGS.md](PHASE0-FINDINGS.md) first — it records what was
 verified, and one decision about the phone runtime that is waiting on you.
@@ -54,6 +55,7 @@ Every run after that should need nothing from you.
 | `uv run python sync_garmin.py --verbose` | add debug logging on stderr |
 | `uv run python sync_garmin.py --no-write` | run without touching `data/latest.json` |
 | `uv run python sync_garmin.py --no-notion` | fetch and save locally, skip the Notion update |
+| `uv run python sync_garmin.py --ignore-lock` | run even if another sync holds the lock (debugging) |
 
 Exit codes (provisional — Phase 4 finalizes them):
 
@@ -99,6 +101,36 @@ value.
 `logs/sync.log` records each run's status, which endpoints failed or were
 empty, and which sections were stale. No secrets are ever logged. Log rotation
 is Phase 4.
+
+## Hardening (Phase 4)
+
+What makes this safe to run unattended every hour:
+
+- **Single-instance lock.** `run.lock` stops two syncs racing each other into
+  the same snapshot and the same Notion page. An overlapping run exits **0**
+  with `SKIPPED` — overlap is normal for a scheduler, not a failure, so it
+  does not raise an alarm. The lock is released even if the run crashes.
+- **Stale lock recovery.** A killed process or a hard reboot leaves the file
+  behind, so a lock older than 30 minutes is reclaimed automatically. You
+  should never have to delete it by hand.
+- **Retry with bounded backoff** on Notion calls: 4 attempts, exponential with
+  jitter, capped at 16 s, honouring `Retry-After`. Only transient conditions
+  (429, 5xx, connection errors) retry — **401/403/404 fail fast**, because a
+  bad token or a missing page will never succeed on a retry.
+- **Mid-run token expiry** is handled: one silent re-login, then the failed
+  endpoint is retried. Exactly one, never a loop — repeatedly retrying an auth
+  failure is how accounts get rate-limited or locked.
+- **Log rotation**, 512 KB × 4 files, so an hourly job cannot fill the phone.
+- Garmin calls rely on the library's own bounded retry rather than being
+  wrapped in a second one, which would multiply into a burst against an API
+  that already rate-limits by IP.
+
+> **A note on the lock and Windows.** The obvious way to check whether the
+> holding process is still alive is `os.kill(pid, 0)`. On POSIX that is a
+> harmless probe. On Windows, Python's `os.kill` has no signal semantics — it
+> calls `TerminateProcess`, so that "probe" would *kill* the process it was
+> asking about. The PID check is therefore POSIX-only, and lock age is the
+> cross-platform fallback.
 
 ## The Notion page (Phase 3)
 
@@ -148,6 +180,7 @@ garmin-fitness-sync/
 ├── storage.py           atomic snapshot writes, last-good preservation, logging
 ├── notion_client.py     the ONLY file that calls the Notion API
 ├── notion_page.py       snapshot → Notion page layout (stable headings)
+├── runlock.py           single-instance lock, with stale-lock recovery
 ├── config.py            env, token store, Notion settings, timezone resolution
 ├── data/latest.json     last known good snapshot (gitignored)
 ├── logs/sync.log        run log (gitignored)
@@ -160,8 +193,7 @@ garmin-fitness-sync/
 Garmin API is called there and nowhere else, so an upstream change is contained
 to one file.
 
-Arriving in later phases: retry/backoff, locking and log rotation (Phase 4);
-`run_sync.sh` and Tasker scheduling (Phase 5).
+Arriving in Phase 5: `run_sync.sh` and Tasker scheduling.
 
 ---
 

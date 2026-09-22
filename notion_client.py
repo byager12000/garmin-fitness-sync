@@ -23,6 +23,8 @@ Notion has no transactions, so failing safe is the best available guarantee.
 from __future__ import annotations
 
 import logging
+import random
+import time
 from typing import Any
 
 import requests
@@ -32,6 +34,13 @@ logger = logging.getLogger(__name__)
 API = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
 TIMEOUT = 30
+
+# Bounded exponential backoff. Only transient conditions are retried: a bad
+# token or a missing page will never succeed on a retry, so those fail fast.
+MAX_ATTEMPTS = 4
+BASE_DELAY = 1.0
+MAX_DELAY = 16.0
+RETRY_STATUS = {429, 500, 502, 503, 504}
 
 # Notion rejects any single rich_text item over 2000 characters.
 RICH_TEXT_LIMIT = 1900
@@ -136,21 +145,69 @@ class NotionAdapter:
 
     # -- plumbing ---------------------------------------------------------
 
+    def _backoff(self, attempt: int, retry_after: str | None = None) -> float:
+        """Delay before the next attempt, honouring Retry-After when present."""
+        if retry_after:
+            try:
+                return min(float(retry_after), MAX_DELAY)
+            except ValueError:
+                pass
+        delay = min(BASE_DELAY * (2 ** (attempt - 1)), MAX_DELAY)
+        # Jitter so repeated failures do not resynchronise into a thundering herd.
+        return delay * (0.5 + random.random() / 2)
+
     def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         url = f"{API}{path}"
-        try:
-            response = self._session.request(method, url, timeout=TIMEOUT, **kwargs)
-        except requests.RequestException as exc:
-            raise NotionError(f"could not reach Notion: {exc}") from exc
+        last_error = "unknown error"
 
-        if response.status_code >= 400:
-            # Surface Notion's own message, which is usually specific, but
-            # never echo the Authorization header back into a log.
-            detail = response.text[:300]
-            raise NotionError(f"Notion returned {response.status_code}: {detail}")
-        if not response.content:
-            return {}
-        return response.json()
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                response = self._session.request(method, url, timeout=TIMEOUT, **kwargs)
+            except requests.RequestException as exc:
+                last_error = f"could not reach Notion: {exc}"
+                if attempt == MAX_ATTEMPTS:
+                    break
+                delay = self._backoff(attempt)
+                logger.warning(
+                    "notion request failed (%s), retrying in %.1fs [%d/%d]",
+                    exc,
+                    delay,
+                    attempt,
+                    MAX_ATTEMPTS,
+                )
+                time.sleep(delay)
+                continue
+
+            if response.status_code in RETRY_STATUS:
+                last_error = (
+                    f"Notion returned {response.status_code}: {response.text[:300]}"
+                )
+                if attempt == MAX_ATTEMPTS:
+                    break
+                delay = self._backoff(attempt, response.headers.get("Retry-After"))
+                logger.warning(
+                    "notion returned %d, retrying in %.1fs [%d/%d]",
+                    response.status_code,
+                    delay,
+                    attempt,
+                    MAX_ATTEMPTS,
+                )
+                time.sleep(delay)
+                continue
+
+            if response.status_code >= 400:
+                # A 401/403/404 will not improve on a retry -- fail fast.
+                # Surface Notion's own message, which is usually specific, but
+                # never echo the Authorization header back into a log.
+                raise NotionError(
+                    f"Notion returned {response.status_code}: {response.text[:300]}"
+                )
+
+            if not response.content:
+                return {}
+            return response.json()
+
+        raise NotionError(f"{last_error} (after {MAX_ATTEMPTS} attempts)")
 
     # -- page lookup ------------------------------------------------------
 

@@ -21,6 +21,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,10 @@ DATA_DIR = Path("data")
 LOG_DIR = Path("logs")
 SNAPSHOT_PATH = DATA_DIR / "latest.json"
 LOG_PATH = LOG_DIR / "sync.log"
+
+# Capped so an hourly job cannot fill a phone: ~2 MB total.
+LOG_MAX_BYTES = 512 * 1024
+LOG_BACKUPS = 3
 
 # Which Garmin endpoints feed which section of the normalized payload. A
 # section is only restored from the previous snapshot when *every* endpoint
@@ -54,6 +59,9 @@ SECTION_SOURCES: dict[str, tuple[str, ...]] = {
 def setup_logging(verbose: bool = False) -> None:
     """Log to logs/sync.log, and to stderr at WARNING (or DEBUG if verbose).
 
+    The file handler rotates, so an hourly job running for months cannot fill
+    the phone's storage: 512 KB per file, 3 older files kept, ~2 MB ceiling.
+
     Never log a secret: this program only ever logs statuses, endpoint names
     and counts.
     """
@@ -62,9 +70,15 @@ def setup_logging(verbose: bool = False) -> None:
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
     for handler in list(root.handlers):
+        handler.close()
         root.removeHandler(handler)
 
-    file_handler = logging.FileHandler(LOG_PATH, encoding="utf-8")
+    file_handler = RotatingFileHandler(
+        LOG_PATH,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUPS,
+        encoding="utf-8",
+    )
     file_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")

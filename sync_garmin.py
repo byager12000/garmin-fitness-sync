@@ -25,6 +25,7 @@ from garmin_client import GarminAdapter, GarminAuthRequired
 from normalize import normalize
 from notion_client import NotionAdapter, NotionError, NotionPageNotFound
 from notion_page import build_blocks
+from runlock import LockHeld, RunLock
 
 # Exit codes. Phase 4 finalizes these; they are here so the program already
 # says something meaningful to a scheduler.
@@ -67,6 +68,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--no-notion",
         action="store_true",
         help="skip the Notion update (fetch and save locally only)",
+    )
+    parser.add_argument(
+        "--ignore-lock",
+        action="store_true",
+        help="run even if another sync holds the lock (debugging only)",
     )
     return parser.parse_args(argv)
 
@@ -305,6 +311,28 @@ def main(argv: list[str] | None = None) -> int:
     storage.setup_logging(verbose=args.verbose)
     log = logging.getLogger("sync")
 
+    if args.ignore_lock:
+        log.warning("running without the single-instance lock (--ignore-lock)")
+        return run(args)
+
+    lock = RunLock()
+    try:
+        lock.acquire()
+    except LockHeld as exc:
+        # Overlapping runs are a normal condition for an hourly scheduler, not
+        # a failure, so this exits 0 and says why rather than alarming Tasker.
+        log.info("skipped: %s", exc)
+        print(f"SKIPPED: {exc}", file=sys.stderr)
+        return EXIT_CODES["OK"]
+
+    try:
+        return run(args)
+    finally:
+        lock.release()
+
+
+def run(args: argparse.Namespace) -> int:
+    log = logging.getLogger("sync")
     cfg = Config.from_env()
     if args.days is not None:
         cfg.lookback_days = max(0, args.days)

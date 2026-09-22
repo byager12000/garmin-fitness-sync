@@ -162,3 +162,21 @@ exposed to it.
 
 - Phase 4 (hardening) and Phase 5 (Android automation) not started.
 - The Phase 5 runtime decision (`curl_cffi` has no Android/Termux support).
+
+---
+
+## 2026-09-22 (Phase 4) — hardening
+
+Built and verified. Nothing new written to Notion beyond the STK-10 Stack row.
+
+Added `runlock.py`; retry/backoff in `notion_client.py`; log rotation in
+`storage.py`; mid-run token-expiry handling in `garmin_client.py`.
+
+Verified by 10 offline checks plus a real two-process concurrency test: one
+sync completed and published while the second printed SKIPPED and exited 0,
+the lock was cleaned up, and the page stayed at 47 blocks with no duplicates.
+
+Notable platform gotcha recorded in the README: `os.kill(pid, 0)` is a
+harmless liveness probe on POSIX but calls `TerminateProcess` on Windows, so
+the lock's PID check is POSIX-only and lock age is the cross-platform
+fallback.

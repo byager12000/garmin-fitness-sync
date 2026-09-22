@@ -60,6 +60,12 @@ class GarminAdapter:
         self.cfg = cfg
         self._client: Garmin | None = None
         self.used_stored_tokens = False
+        self._prompt_mfa: Callable[[], str] | None = None
+        # A token can expire mid-run. One silent re-login is allowed per run;
+        # more than that would be an auth-retry loop, which is how accounts
+        # get rate-limited or locked.
+        self._reauth_used = False
+        self.reauthenticated = False
 
     # ---------------------------------------------------------------- auth
 
@@ -70,6 +76,7 @@ class GarminAdapter:
         tokens; only if that fails does it fall back to username/password and
         then persist fresh tokens back to the same path.
         """
+        self._prompt_mfa = prompt_mfa
         had_tokens = self.cfg.has_stored_tokens
         if not had_tokens and not self.cfg.has_credentials:
             raise GarminAuthRequired(
@@ -78,10 +85,17 @@ class GarminAdapter:
                 "Run the first login interactively to create the token store."
             )
 
+        # retry_attempts is the library's own bounded retry for transient
+        # Garmin errors, so this adapter deliberately does not wrap every data
+        # call in a second retry loop -- that would multiply out to a burst of
+        # requests against an API that already rate-limits by IP.
         client = Garmin(
             email=self.cfg.email,
             password=self.cfg.password,
             prompt_mfa=prompt_mfa,
+            retry_attempts=3,
+            retry_min_wait=1.0,
+            retry_max_wait=10.0,
         )
         try:
             client.login(str(self.cfg.tokenstore_path))
@@ -108,6 +122,21 @@ class GarminAdapter:
 
     # --------------------------------------------------------------- fetch
 
+    def _try_reauth(self) -> bool:
+        """Re-login once per run after a mid-run token expiry."""
+        if self._reauth_used:
+            return False
+        self._reauth_used = True
+        logger.warning("Garmin token appears to have expired; re-authenticating once")
+        try:
+            self.connect(prompt_mfa=self._prompt_mfa)
+        except Exception as exc:
+            logger.warning("re-authentication failed: %s", exc)
+            return False
+        self.reauthenticated = True
+        logger.info("re-authentication succeeded; retrying the failed endpoint")
+        return True
+
     def _safe(
         self,
         results: list[EndpointResult],
@@ -121,6 +150,28 @@ class GarminAdapter:
         """
         try:
             value = fn()
+        except GarminConnectAuthenticationError as exc:
+            # The stored token expired partway through the run. Refresh once
+            # and retry this endpoint; never loop on an auth failure.
+            logger.debug("%s: authentication error: %s", key, exc)
+            if self._try_reauth():
+                try:
+                    value = fn()
+                except Exception as retry_exc:
+                    logger.debug("%s: failed again after re-auth: %s", key, retry_exc)
+                    results.append(
+                        EndpointResult(
+                            key, ok=False, error=f"after re-auth: {type(retry_exc).__name__}"
+                        )
+                    )
+                    return None
+                empty = value is None or (isinstance(value, (list, dict)) and not value)
+                results.append(EndpointResult(key, ok=True, empty=empty))
+                return value
+            results.append(
+                EndpointResult(key, ok=False, error="GarminConnectAuthenticationError")
+            )
+            return None
         except (
             GarminConnectConnectionError,
             GarminConnectTooManyRequestsError,

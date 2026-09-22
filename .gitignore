@@ -21,7 +21,8 @@ wheels/
 garmin_tokens.json
 tokens/
 
-# Local snapshots and logs (Phase 2+)
+# Local snapshots, logs and the single-instance lock (Phase 2+)
 data/
 logs/
 *.log
+run.lock
