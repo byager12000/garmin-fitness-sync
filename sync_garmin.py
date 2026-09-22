@@ -19,6 +19,7 @@ import sys
 from datetime import datetime, timedelta
 from typing import Any
 
+import storage
 from config import Config, timezone_label
 from garmin_client import GarminAdapter, GarminAuthRequired
 from normalize import normalize
@@ -53,6 +54,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--verbose", action="store_true", help="show debug logging on stderr"
+    )
+    parser.add_argument(
+        "--no-write",
+        action="store_true",
+        help="do not touch data/latest.json (useful when debugging)",
     )
     return parser.parse_args(argv)
 
@@ -168,7 +174,8 @@ def render_summary(payload: dict[str, Any]) -> str:
     lines.append(_row("Cycling", seven["cycling_miles"], " mi"))
     lines.append(_row("Walking / hiking", seven["walking_miles"], " mi"))
 
-    if sync["unavailable_endpoints"] or sync["empty_endpoints"]:
+    stale = sync.get("stale_sections") or []
+    if sync["unavailable_endpoints"] or sync["empty_endpoints"] or stale:
         lines.append("")
         lines.append("DATA AVAILABILITY")
         if sync["unavailable_endpoints"]:
@@ -178,6 +185,11 @@ def render_summary(payload: dict[str, Any]) -> str:
         if sync["empty_endpoints"]:
             lines.append(
                 "  empty:   " + ", ".join(sync["empty_endpoints"])
+            )
+        if stale:
+            lines.append("  stale:   " + ", ".join(stale))
+            lines.append(
+                "  (stale = carried over from the last good sync, NOT fresh)"
             )
         lines.append(
             "  (empty means Garmin answered but had nothing for this account/day)"
@@ -218,13 +230,42 @@ def prompt_mfa() -> str:
         raise no_terminal from None
 
 
+def classify_login_failure(exc: BaseException) -> tuple[str, str]:
+    """Turn a login exception into (status, human message).
+
+    The interesting cases arrive wrapped by the library, so the cause chain is
+    walked rather than only inspecting the outermost exception.
+    """
+    if isinstance(exc, GarminAuthRequired):
+        return "AUTH_REQUIRED", str(exc)
+
+    cause: BaseException | None = exc
+    while cause is not None:
+        if isinstance(cause, MFANotPossible):
+            return "AUTH_REQUIRED", str(cause)
+        cause = cause.__cause__ or cause.__context__
+
+    text = str(exc)
+    if "EOF when reading a line" in text:
+        return (
+            "AUTH_REQUIRED",
+            "Garmin asked for a multi-factor code but no terminal was "
+            "available to read it. Run this by hand in a terminal once to "
+            "complete MFA.",
+        )
+    if "429" in text or "rate limit" in text.lower():
+        return (
+            "AUTH_REQUIRED",
+            f"Garmin is rate-limiting this IP (429). Wait before retrying -- "
+            f"do not retry in a loop. Detail: {text}",
+        )
+    return "FAILED", f"unexpected login error: {text}"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.WARNING,
-        format="%(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+    storage.setup_logging(verbose=args.verbose)
+    log = logging.getLogger("sync")
 
     cfg = Config.from_env()
     if args.days is not None:
@@ -235,38 +276,31 @@ def main(argv: list[str] | None = None) -> int:
     today = attempted_at.date()
     window_start = today - timedelta(days=cfg.lookback_days)
 
+    previous = storage.load_previous()
+    log.info(
+        "run start: date=%s window=%sd tz=%s previous_snapshot=%s",
+        today,
+        cfg.lookback_days,
+        timezone_label(tz),
+        "yes" if previous else "no",
+    )
+
     adapter = GarminAdapter(cfg)
     try:
         adapter.connect(prompt_mfa=prompt_mfa)
-    except GarminAuthRequired as exc:
-        print(f"AUTH_REQUIRED: {exc}", file=sys.stderr)
-        return EXIT_CODES["AUTH_REQUIRED"]
-    except Exception as exc:  # unofficial API: surface, do not crash silently
-        # The MFA-without-a-terminal case arrives wrapped by the library, so
-        # match on the cause chain as well as the exception itself.
-        cause: BaseException | None = exc
-        while cause is not None:
-            if isinstance(cause, MFANotPossible):
-                print(f"AUTH_REQUIRED: {cause}", file=sys.stderr)
-                return EXIT_CODES["AUTH_REQUIRED"]
-            cause = cause.__cause__ or cause.__context__
-        if "EOF when reading a line" in str(exc):
-            print(
-                "AUTH_REQUIRED: Garmin asked for a multi-factor code but no "
-                "terminal was available to read it. Run this by hand in a "
-                "terminal once to complete MFA.",
-                file=sys.stderr,
+    except Exception as exc:
+        status, message = classify_login_failure(exc)
+        print(f"{status}: {message}", file=sys.stderr)
+        log.error("login failed (%s): %s", status, message)
+        # A failed login must never erase working data: keep every previous
+        # section and update only the sync block.
+        if not args.no_write:
+            snapshot = storage.failure_snapshot(
+                previous, status=status, attempted_at=attempted_at, detail=message
             )
-            return EXIT_CODES["AUTH_REQUIRED"]
-        if "429" in str(exc) or "rate" in str(exc).lower():
-            print(
-                f"AUTH_REQUIRED: Garmin is rate-limiting this IP (429). Wait "
-                f"before retrying -- do not retry in a loop. Detail: {exc}",
-                file=sys.stderr,
-            )
-            return EXIT_CODES["AUTH_REQUIRED"]
-        print(f"FAILED: unexpected login error: {exc}", file=sys.stderr)
-        return EXIT_CODES["FAILED"]
+            if snapshot is not None:
+                storage.write_atomic(snapshot)
+        return EXIT_CODES[status]
 
     if not args.json:
         source = "stored tokens" if adapter.used_stored_tokens else "fresh login"
@@ -285,13 +319,31 @@ def main(argv: list[str] | None = None) -> int:
         lookback_days=cfg.lookback_days,
         attempted_at=attempted_at,
     )
+    payload = storage.finalize(payload, previous, results)
+
+    sync = payload["sync"]
+    log.info(
+        "run end: status=%s failed=%s empty=%s stale=%s activities=%d",
+        sync["status"],
+        sync["unavailable_endpoints"] or "-",
+        sync["empty_endpoints"] or "-",
+        sync["stale_sections"] or "-",
+        len(payload["recent_activities"]),
+    )
+
+    if not args.no_write:
+        storage.write_atomic(payload)
 
     if not args.json:
         print(render_summary(payload))
+        if not args.no_write:
+            print(f"  Snapshot written to {storage.SNAPSHOT_PATH}")
+            print(f"  Log appended to    {storage.LOG_PATH}")
+            print()
     if not args.summary:
         print(json.dumps(payload, indent=2, default=str))
 
-    return EXIT_CODES.get(payload["sync"]["status"], EXIT_CODES["FAILED"])
+    return EXIT_CODES.get(sync["status"], EXIT_CODES["FAILED"])
 
 
 if __name__ == "__main__":
