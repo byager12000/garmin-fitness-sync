@@ -1,0 +1,21 @@
+[project]
+name = "garmin-fitness-sync"
+version = "0.1.0"
+description = "Read-only Garmin Connect -> normalized JSON -> Notion fitness sync (Stack STK-10)"
+readme = "README.md"
+authors = [
+    { name = "Ben", email = "byager12000@gmail.com" }
+]
+# garminconnect 0.3.x requires 3.12+.
+requires-python = ">=3.12"
+dependencies = [
+    "curl-cffi>=0.16.3",
+    "garminconnect>=0.3.16",
+    "python-dotenv>=1.2.3",
+    "tzdata>=2026.4",
+]
+
+# Flat script layout (sync_garmin.py at the project root), not an installable
+# package -- Phase 5 launches it directly from run_sync.sh on Termux.
+[tool.uv]
+package = false

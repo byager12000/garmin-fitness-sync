@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets -- never commit these
+.env
+*.env
+!.env.example
+
+# Garmin auth tokens. The library defaults to ~/.garminconnect, but if the
+# token store is ever pointed inside the project it must not be committed:
+# these files are session credentials.
+.garminconnect/
+garmin_tokens.json
+tokens/
+
+# Local snapshots and logs (Phase 2+)
+data/
+logs/
+*.log
