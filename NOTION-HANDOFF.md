@@ -89,3 +89,29 @@ and the activity-name truncation note for Phase 3.
 
 - `Fitness Live` page and its scoped Notion integration token (Phase 3).
 - The Phase 5 runtime decision (`curl_cffi` on Termux).
+
+---
+
+## 2026-09-22 (Phase 2) — persistence built, Stack updated
+
+### Written to Notion
+
+STK-10 Stack row: **Revision** → `Rev 0 — Phase 2`; **Current Focus** and
+**AI Handoff Summary** updated for Phase 2 and the commit IDs; **Critical
+Questions** gained the resolved 429 explanation (cell hotspot / carrier-grade
+NAT, login endpoints only) and a new open item about the missing GitHub remote.
+
+Appended a **Phase 2 — local persistence** section to the page body.
+
+### Committed
+
+- `6c264e2` Phase 1 — read-only fetch, normalize, console output
+- `8bf5bc8` Phase 2 — persistence with last-good preservation
+
+`.env`, `data/` and `logs/` are gitignored and confirmed absent from both
+commits. **No GitHub remote is configured**, so the laptop is the only copy.
+
+### Still blocking Phase 3 (Ben's to do)
+
+- Create the `Fitness Live` page in The Nexus.
+- Create a Notion internal integration token scoped to that one page.
