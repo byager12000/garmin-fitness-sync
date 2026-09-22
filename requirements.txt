@@ -1,0 +1,20 @@
+# Dependencies for environments without uv -- notably Termux on Android,
+# where the project runs under a plain venv (see TERMUX-SETUP.md).
+#
+# On the laptop, use `uv sync` instead; uv.lock is the authoritative pin there.
+# Keep these versions in step with pyproject.toml.
+
+garminconnect==0.3.16
+curl-cffi==0.16.3
+python-dotenv==1.2.3
+tzdata==2026.4
+
+# Pulled in transitively, pinned so a phone install matches the laptop:
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+idna==3.20
+pycparser==3.0
+requests==2.34.2
+ua-generator==2.1.6
+urllib3==2.8.0

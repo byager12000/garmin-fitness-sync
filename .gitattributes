@@ -1,0 +1,11 @@
+# Default: let git normalise text files in the repo.
+* text=auto
+
+# Shell scripts MUST keep LF endings. run_sync.sh is checked out on Android,
+# and a CRLF shebang line makes the kernel look for an interpreter literally
+# named "bash\r", which fails as a confusing "bad interpreter" error.
+*.sh text eol=lf
+
+# The same applies to anything the phone sources or executes.
+.env.example text eol=lf
+requirements.txt text eol=lf

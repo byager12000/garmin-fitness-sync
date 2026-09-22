@@ -4,13 +4,13 @@ Stack project **STK-10**. Read-only sync that turns Garmin Connect data into a
 compact, normalized record ChatGPT can use for nutrition, training and recovery
 context — with no manual reporting.
 
-**Current state: Phase 4 complete — the pipeline works end to end and is
-hardened for unattended running.** Logs in to Garmin, fetches today plus a
-rolling activity window, normalizes it, saves the snapshot to
-`data/latest.json`, and updates the **Fitness Live** page in The Nexus so
-ChatGPT can read it. Nothing is ever written back to Garmin.
+**Current state: Phase 5 built — all phases complete, pending the on-phone
+install.** Logs in to Garmin, fetches today plus a rolling activity window,
+normalizes it, saves the snapshot to `data/latest.json`, and updates the
+**Fitness Live** page in The Nexus so ChatGPT can read it. Nothing is ever
+written back to Garmin.
 
-Still to come: hourly Android automation (Phase 5).
+For hourly running on Android, see **[TERMUX-SETUP.md](TERMUX-SETUP.md)**.
 
 Read [PHASE0-FINDINGS.md](PHASE0-FINDINGS.md) first — it records what was
 verified, and one decision about the phone runtime that is waiting on you.
@@ -102,6 +102,22 @@ value.
 empty, and which sections were stale. No secrets are ever logged. Log rotation
 is Phase 4.
 
+## Running it on the phone (Phase 5)
+
+Full walkthrough: **[TERMUX-SETUP.md](TERMUX-SETUP.md)**. The short version:
+
+- `run_sync.sh` is the single launch entry point. It runs **one** sync and
+  exits — no resident loop, which Android's Doze would kill anyway.
+- Tasker fires it hourly through the Termux:Tasker plugin.
+- **Do not log in to Garmin on the phone.** Copy
+  `~/.garminconnect/garmin_tokens.json` across from the laptop instead. It is
+  three opaque strings with no device binding, so the phone inherits an
+  already-authenticated session — which skips both the MFA prompt and the
+  per-IP 429 throttle that only ever affects the login endpoints.
+- The one genuine unknown is `curl_cffi`, which has no official Android
+  support. Try `pip install curl_cffi` first; if it fails, `proot-distro`
+  Debian gives a glibc userland on the phone where the normal wheel installs.
+
 ## Hardening (Phase 4)
 
 What makes this safe to run unattended every hour:
@@ -182,6 +198,9 @@ garmin-fitness-sync/
 ├── notion_page.py       snapshot → Notion page layout (stable headings)
 ├── runlock.py           single-instance lock, with stale-lock recovery
 ├── config.py            env, token store, Notion settings, timezone resolution
+├── run_sync.sh          single launch entry point for Tasker / Termux
+├── requirements.txt     pinned deps for environments without uv (the phone)
+├── TERMUX-SETUP.md      hourly Android setup, battery settings, troubleshooting
 ├── data/latest.json     last known good snapshot (gitignored)
 ├── logs/sync.log        run log (gitignored)
 ├── .env.example
@@ -193,7 +212,8 @@ garmin-fitness-sync/
 Garmin API is called there and nowhere else, so an upstream change is contained
 to one file.
 
-Arriving in Phase 5: `run_sync.sh` and Tasker scheduling.
+All phases are now built. What remains is installing it on the phone and
+confirming it survives a few days of hourly running.
 
 ---
 
