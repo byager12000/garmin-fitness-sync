@@ -24,6 +24,7 @@ SCHEMA_VERSION = 1
 
 DEFAULT_TOKENSTORE = "~/.garminconnect"
 DEFAULT_LOOKBACK_DAYS = 7
+DEFAULT_NOTION_PAGE_TITLE = "Fitness Live"
 
 
 def _system_timezone() -> tzinfo:
@@ -73,6 +74,9 @@ class Config:
     tokenstore: str = DEFAULT_TOKENSTORE
     lookback_days: int = DEFAULT_LOOKBACK_DAYS
     timezone: tzinfo = field(default_factory=_local_timezone)
+    notion_token: str | None = None
+    notion_page_id: str | None = None
+    notion_page_title: str = DEFAULT_NOTION_PAGE_TITLE
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -94,6 +98,9 @@ class Config:
             tokenstore=env("GARMINTOKENS") or DEFAULT_TOKENSTORE,
             lookback_days=lookback,
             timezone=_local_timezone(env("FITNESS_TZ")),
+            notion_token=env("NOTION_TOKEN"),
+            notion_page_id=env("NOTION_PAGE_ID"),
+            notion_page_title=env("NOTION_PAGE_TITLE") or DEFAULT_NOTION_PAGE_TITLE,
         )
 
     @property
@@ -107,3 +114,7 @@ class Config:
     @property
     def has_stored_tokens(self) -> bool:
         return self.tokenstore_path.exists()
+
+    @property
+    def notion_configured(self) -> bool:
+        return bool(self.notion_token)

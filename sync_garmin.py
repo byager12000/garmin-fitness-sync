@@ -23,6 +23,8 @@ import storage
 from config import Config, timezone_label
 from garmin_client import GarminAdapter, GarminAuthRequired
 from normalize import normalize
+from notion_client import NotionAdapter, NotionError, NotionPageNotFound
+from notion_page import build_blocks
 
 # Exit codes. Phase 4 finalizes these; they are here so the program already
 # says something meaningful to a scheduler.
@@ -31,6 +33,7 @@ EXIT_CODES = {
     "FAILED": 1,
     "AUTH_REQUIRED": 2,
     "GARMIN_UNAVAILABLE": 3,
+    "NOTION_UNAVAILABLE": 4,
     "PARTIAL": 10,
 }
 
@@ -59,6 +62,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--no-write",
         action="store_true",
         help="do not touch data/latest.json (useful when debugging)",
+    )
+    parser.add_argument(
+        "--no-notion",
+        action="store_true",
+        help="skip the Notion update (fetch and save locally only)",
     )
     return parser.parse_args(argv)
 
@@ -262,6 +270,36 @@ def classify_login_failure(exc: BaseException) -> tuple[str, str]:
     return "FAILED", f"unexpected login error: {text}"
 
 
+def publish_to_notion(cfg: Config, payload: dict[str, Any]) -> str | None:
+    """Update the Fitness Live page. Returns an error message, or None on success.
+
+    A Notion failure never invalidates the Garmin data: the snapshot is already
+    saved locally by the time this runs, so the caller reports
+    NOTION_UNAVAILABLE and the next run simply republishes.
+    """
+    log = logging.getLogger("sync")
+    try:
+        adapter = NotionAdapter(
+            cfg.notion_token or "",
+            page_id=cfg.notion_page_id,
+            page_title=cfg.notion_page_title,
+        )
+        page_id = adapter.resolve_page_id()
+        adapter.replace_managed_section(page_id, build_blocks(payload))
+    except NotionPageNotFound as exc:
+        log.error("notion page not found: %s", exc)
+        return str(exc)
+    except NotionError as exc:
+        log.error("notion update failed: %s", exc)
+        return str(exc)
+    except Exception as exc:  # never let Notion take down a good Garmin run
+        log.exception("unexpected Notion failure")
+        return f"unexpected Notion failure: {exc}"
+
+    log.info("notion page updated")
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     storage.setup_logging(verbose=args.verbose)
@@ -294,12 +332,17 @@ def main(argv: list[str] | None = None) -> int:
         log.error("login failed (%s): %s", status, message)
         # A failed login must never erase working data: keep every previous
         # section and update only the sync block.
-        if not args.no_write:
-            snapshot = storage.failure_snapshot(
-                previous, status=status, attempted_at=attempted_at, detail=message
-            )
-            if snapshot is not None:
+        snapshot = storage.failure_snapshot(
+            previous, status=status, attempted_at=attempted_at, detail=message
+        )
+        if snapshot is not None:
+            if not args.no_write:
                 storage.write_atomic(snapshot)
+            # Still tell Notion the sync is failing, without erasing the good
+            # data already on the page -- a silently stale page is worse than
+            # one that says so.
+            if cfg.notion_configured and not args.no_notion:
+                publish_to_notion(cfg, snapshot)
         return EXIT_CODES[status]
 
     if not args.json:
@@ -331,18 +374,39 @@ def main(argv: list[str] | None = None) -> int:
         len(payload["recent_activities"]),
     )
 
+    # Save locally BEFORE publishing: a Notion outage must never cost us the
+    # Garmin data we just fetched.
     if not args.no_write:
         storage.write_atomic(payload)
+
+    notion_error: str | None = None
+    notion_skipped: str | None = None
+    if args.no_notion:
+        notion_skipped = "skipped (--no-notion)"
+    elif not cfg.notion_configured:
+        notion_skipped = "skipped (NOTION_TOKEN not set)"
+    else:
+        notion_error = publish_to_notion(cfg, payload)
 
     if not args.json:
         print(render_summary(payload))
         if not args.no_write:
             print(f"  Snapshot written to {storage.SNAPSHOT_PATH}")
-            print(f"  Log appended to    {storage.LOG_PATH}")
-            print()
+        if notion_skipped:
+            print(f"  Notion             {notion_skipped}")
+        elif notion_error:
+            print(f"  Notion             FAILED - {notion_error}")
+        else:
+            print(f"  Notion page        updated ({cfg.notion_page_title})")
+        print(f"  Log appended to    {storage.LOG_PATH}")
+        print()
     if not args.summary:
         print(json.dumps(payload, indent=2, default=str))
 
+    if notion_error:
+        # The Garmin half succeeded and is safely on disk; only the publish
+        # failed, so report that distinctly rather than as a Garmin problem.
+        return EXIT_CODES["NOTION_UNAVAILABLE"]
     return EXIT_CODES.get(sync["status"], EXIT_CODES["FAILED"])
 
 
