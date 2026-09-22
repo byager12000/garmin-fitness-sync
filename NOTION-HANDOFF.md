@@ -115,3 +115,18 @@ commits. **No GitHub remote is configured**, so the laptop is the only copy.
 
 - Create the `Fitness Live` page in The Nexus.
 - Create a Notion internal integration token scoped to that one page.
+
+---
+
+## 2026-09-22 (later) — GitHub remote created
+
+Remote wired and pushed on Ben's go-ahead:
+`https://github.com/byager12000/garmin-fitness-sync.git` (private), branch
+`main` tracking `origin/main`, 3 commits.
+
+Naming note: PLC projects use the `plc-<name>` prefix; this is an App Dev
+project, so it is just `garmin-fitness-sync`.
+
+Verified after push that `.env`, `data/` and `logs/` are absent from the
+remote tree. GitHub is now the off-laptop copy, per the standing rule that
+`C:\Visron` is not in OneDrive.
