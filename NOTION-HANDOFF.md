@@ -130,3 +130,35 @@ project, so it is just `garmin-fitness-sync`.
 Verified after push that `.env`, `data/` and `logs/` are absent from the
 remote tree. GitHub is now the off-laptop copy, per the standing rule that
 `C:\Visron` is not in OneDrive.
+
+---
+
+## 2026-09-22 (Phase 3) — Notion write, verified end to end
+
+### Created in Notion
+
+**Fitness Live** page, under *Cut to 180 — Coaching System* in The Nexus:
+`https://app.notion.com/p/3e3cbcedeeca81009ff6d2f9219d2e15`
+
+Structure: permanent intro (a "managed page, do not edit by hand" callout plus
+a description) above a divider; everything below the divider is the managed
+section the sync replaces each run.
+
+Ben created the internal integration and connected it to that one page.
+Verified the token sees **exactly one page** — nothing else in the Nexus is
+exposed to it.
+
+### Verified
+
+- First live end-to-end sync: exit 0, 44 managed blocks written.
+- **Idempotency**: after three consecutive syncs the page holds 47 blocks
+  (3 permanent + 44 managed) with exactly 6 headings and no duplicates.
+  Satisfies acceptance criterion 8.
+- **Notion failure path**: forced a 401 with a bad token. Result — exit 4
+  (`NOTION_UNAVAILABLE`), Garmin data still saved locally, and the Notion page
+  left untouched at 47 blocks rather than being half-written.
+
+### Still open
+
+- Phase 4 (hardening) and Phase 5 (Android automation) not started.
+- The Phase 5 runtime decision (`curl_cffi` has no Android/Termux support).
