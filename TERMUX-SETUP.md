@@ -1,3 +1,5 @@
+# NOTE: superseded by PHONE-SETUP.md, which documents the adb-driven
+# procedure that actually worked. Kept for the manual, on-phone route.
 # Phase 5 — running the sync hourly on Android
 
 Target: Samsung Galaxy S24 Ultra, Termux + Tasker.

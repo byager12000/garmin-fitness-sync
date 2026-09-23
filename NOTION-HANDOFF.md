@@ -180,3 +180,33 @@ Notable platform gotcha recorded in the README: `os.kill(pid, 0)` is a
 harmless liveness probe on POSIX but calls `TerminateProcess` on Windows, so
 the lock's PID check is POSIX-only and lock age is the cross-platform
 fallback.
+
+---
+
+## 2026-09-23 — Phase 5 INSTALLED ON THE PHONE
+
+Set up the S24 Ultra (Android 16) end to end over adb. The sync now runs
+hourly on the phone and updates Fitness Live itself.
+
+### Outcome
+
+- `curl_cffi` **builds from source on Termux** — the Phase 0 finding that
+  Android was unsupported held for wheels only. No proot-distro needed.
+- Python 3.14.6, all deps, project files and credentials installed.
+- Garmin token copied from the laptop rather than logging in: no MFA, no 429,
+  and **no Garmin password on the phone**.
+- Hourly job registered via `termux-job-scheduler`
+  (`PERIODIC: interval=+1h0m0s0ms`), verified by forcing a run.
+- The single-instance lock proved itself in the wild: two invocations
+  overlapped and the second exited 0 with SKIPPED.
+
+### Written to Notion
+
+Created **Fitness Live** earlier; it is now being updated by the phone.
+Verified 48 blocks, 6 headings, no duplicates, status OK.
+
+### Documented
+
+`PHONE-SETUP.md` (the adb procedure that worked, with every gotcha) and
+`bootstrap-phone.sh` (one-shot Termux setup). TERMUX-SETUP.md marked as
+superseded.
