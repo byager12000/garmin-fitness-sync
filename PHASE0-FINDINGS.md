@@ -55,9 +55,28 @@ which allows a non-interactive flow. Noted for later; not needed now.
 
 ---
 
-## 2. ⚠️ Termux compatibility — the one genuine threat to the phone-first plan
+## 2. ~~⚠️ Termux compatibility~~ — RESOLVED, and this finding was WRONG
 
-**This is the finding that matters most, and it should be decided before Phase 5.**
+> **Correction, 2026-09-23.** `curl_cffi` **builds and runs fine on Termux.**
+> It was compiled from source on the S24 Ultra (Android 16, Python 3.14) in a
+> few minutes, given `clang` and `libffi`, and the sync has been running
+> hourly on the phone since.
+>
+> What follows was right about *prebuilt wheels* — `pip install --only-binary`
+> genuinely fails, there is no Android wheel — but wrong to conclude from that
+> that the package is unusable. **None of the workarounds below were needed**,
+> including the `proot-distro` Debian option I rated "most promising".
+>
+> Lesson worth keeping: "platform X is unsupported" in upstream docs and
+> issue trackers usually means "we ship no binaries for it", not "it cannot
+> work". A 20-minute source build would have settled this on day one, instead
+> of it hanging over the project as the main architectural risk.
+>
+> The section is kept as written because the reasoning was sound given what
+> was knowable then, and because the wheel-vs-source distinction is the useful
+> part.
+
+**Original finding (superseded):**
 
 `garminconnect` 0.3.x has a hard dependency on **`curl_cffi`**, a C extension
 that bundles `libcurl-impersonate`. Its supported platforms are Linux

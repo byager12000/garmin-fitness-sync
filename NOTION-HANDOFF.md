@@ -264,3 +264,30 @@ did not work" conclusion.
 
 V1 is functionally complete. Remaining is Ben's acceptance test: record an
 activity, do nothing, confirm it appears on Fitness Live.
+
+---
+
+## 2026-09-23 — final documentation pass
+
+USB debugging turned back off by Ben; the phone is now untouchable from the
+laptop without re-enabling it, which is the intended end state.
+
+Documentation audited for staleness now that V1 is live:
+
+- **README** rewritten: current state is "V1 is live, running hourly on the
+  phone" rather than "pending install"; Tasker/proot references corrected;
+  the file listing fixed (it had a duplicate entry and pointed at the
+  superseded setup guide); added the timezone section the header referenced
+  but which did not exist.
+- **PHASE0-FINDINGS.md §2** given a correction banner. It was the "curl_cffi
+  cannot work on Android" finding, which was wrong — true of prebuilt wheels,
+  not of the source build. Kept rather than deleted, because the
+  wheel-vs-source distinction is the useful part and the reasoning was sound
+  given what was knowable then.
+- **ENVIRONMENT.md** added: the two machines side by side (phone = runtime,
+  laptop = development), pinned versions, and the known issues worth carrying
+  forward (garth deprecation, Garmin's login-only 429, CRLF shebangs, Notion
+  properties parsed as markdown, uv/adb not on PATH).
+
+Full regression suite re-run and passing; both shell scripts syntax-checked;
+all modules compile. Working tree clean and pushed.

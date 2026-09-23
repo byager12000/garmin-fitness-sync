@@ -4,13 +4,20 @@ Stack project **STK-10**. Read-only sync that turns Garmin Connect data into a
 compact, normalized record ChatGPT can use for nutrition, training and recovery
 context — with no manual reporting.
 
-**Current state: Phase 5 built — all phases complete, pending the on-phone
-install.** Logs in to Garmin, fetches today plus a rolling activity window,
-normalizes it, saves the snapshot to `data/latest.json`, and updates the
-**Fitness Live** page in The Nexus so ChatGPT can read it. Nothing is ever
-written back to Garmin.
+**Current state: V1 is live.** It runs **hourly on Ben's phone** (Galaxy S24
+Ultra, Termux) with no laptop involved, and survives reboots. Each run fetches
+today plus a rolling activity window from Garmin, normalizes it, saves a
+snapshot to `data/latest.json`, and updates the **Fitness Live** page in The
+Nexus so ChatGPT can read it. Nothing is ever written back to Garmin.
 
-For hourly running on Android, see **[TERMUX-SETUP.md](TERMUX-SETUP.md)**.
+- **Health check:** if **Last updated** on the Fitness Live page is ever more
+  than about an hour old, something has stopped. That one field is the whole
+  monitoring story.
+- **Setting up a phone** (new handset, or rebuilding this one):
+  **[PHONE-SETUP.md](PHONE-SETUP.md)** — the adb-driven procedure that works,
+  plus every trap we hit. `bootstrap-phone.sh` automates the Termux side.
+- **The laptop copy is the development environment**, not the runtime. Running
+  a sync here is fine, but see the timezone note below.
 
 Read [PHASE0-FINDINGS.md](PHASE0-FINDINGS.md) first — it records what was
 verified, and one decision about the phone runtime that is waiting on you.
@@ -104,19 +111,40 @@ is Phase 4.
 
 ## Running it on the phone (Phase 5)
 
-Full walkthrough: **[TERMUX-SETUP.md](TERMUX-SETUP.md)**. The short version:
+Full walkthrough: **[PHONE-SETUP.md](PHONE-SETUP.md)**. The short version:
 
 - `run_sync.sh` is the single launch entry point. It runs **one** sync and
   exits — no resident loop, which Android's Doze would kill anyway.
-- Tasker fires it hourly through the Termux:Tasker plugin.
+- **`termux-job-scheduler`** (from Termux:API) fires it hourly. Tasker is not
+  needed, and neither is any paid app.
+- **Termux:Boot is mandatory.** Android does not persist periodic jobs across
+  a reboot — confirmed the hard way, the job simply vanished. The boot hook at
+  `~/.termux/boot/00-garmin-sync.sh` re-registers it on every startup.
 - **Do not log in to Garmin on the phone.** Copy
   `~/.garminconnect/garmin_tokens.json` across from the laptop instead. It is
   three opaque strings with no device binding, so the phone inherits an
   already-authenticated session — which skips both the MFA prompt and the
-  per-IP 429 throttle that only ever affects the login endpoints.
-- The one genuine unknown is `curl_cffi`, which has no official Android
-  support. Try `pip install curl_cffi` first; if it fails, `proot-distro`
-  Debian gives a glibc userland on the phone where the normal wheel installs.
+  per-IP 429 throttle that only ever affects the login endpoints. It also means
+  **no Garmin password exists on the phone at all**.
+- **`curl_cffi` does build on Termux**, despite published guidance saying
+  Android is unsupported. That is true of prebuilt wheels only; the source
+  build succeeds given `clang` and `libffi`. The `proot-distro` Debian
+  workaround is not needed.
+
+## Timezone — and why the two machines disagree
+
+The sync uses **whichever device runs it** to decide what "today" means, and
+what local time an activity happened at. That is deliberate: it means a travel
+day follows you rather than being pinned to a hard-coded zone.
+
+The consequence is that the phone and the laptop can disagree — ours do. The
+phone is on `America/Los_Angeles`, the laptop on Eastern. Since the phone owns
+the hourly schedule, **treat the phone as authoritative**. Running a sync from
+the laptop is harmless, but it will rewrite the page with the laptop's idea of
+local time until the phone's next run.
+
+`FITNESS_TZ` can pin the zone explicitly, but leave it unset in normal use —
+following the device is the desired behaviour.
 
 ## Hardening (Phase 4)
 
@@ -198,13 +226,16 @@ garmin-fitness-sync/
 ├── notion_page.py       snapshot → Notion page layout (stable headings)
 ├── runlock.py           single-instance lock, with stale-lock recovery
 ├── config.py            env, token store, Notion settings, timezone resolution
-├── run_sync.sh          single launch entry point for Tasker / Termux
+├── run_sync.sh          single launch entry point, called by the hourly job
+├── bootstrap-phone.sh   one-shot Termux setup for a new phone
 ├── requirements.txt     pinned deps for environments without uv (the phone)
-├── TERMUX-SETUP.md      hourly Android setup, battery settings, troubleshooting
+├── PHONE-SETUP.md       the adb procedure that works, and every trap in it
+├── ENVIRONMENT.md       toolchain, versions, known issues
+├── PHASE0-FINDINGS.md   what was verified up front, and what turned out wrong
+├── TERMUX-SETUP.md      superseded manual route, kept for reference
 ├── data/latest.json     last known good snapshot (gitignored)
 ├── logs/sync.log        run log (gitignored)
 ├── .env.example
-├── PHASE0-FINDINGS.md   verified assumptions + the Termux decision
 └── README.md
 ```
 
