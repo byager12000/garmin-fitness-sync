@@ -14,6 +14,7 @@ labelled stale rather than quietly presented as current.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from notion_client import (
@@ -41,6 +42,67 @@ def _fmt(value: Any, suffix: str = "") -> str:
     if isinstance(value, float):
         value = int(value) if value.is_integer() else round(value, 2)
     return f"{value}{suffix}"
+
+
+def short_zone(label: Any) -> str:
+    """'Eastern Daylight Time' -> 'EDT'; 'America/Los_Angeles' -> 'Los Angeles'.
+
+    Windows reports full zone names and Linux reports abbreviations, so both
+    shapes turn up depending on which device ran the sync.
+    """
+    if not label or not isinstance(label, str):
+        return ""
+    if "/" in label:  # IANA name
+        return label.rsplit("/", 1)[-1].replace("_", " ")
+    words = label.split()
+    if len(words) > 1:
+        return "".join(w[0] for w in words if w[:1].isupper()).upper() or label
+    return label
+
+
+def human_time(iso: Any, *, zone: Any = None, fallback: str = "never") -> str:
+    """ISO timestamp -> something readable at a glance on the page.
+
+    The raw value (2026-09-23T05:37:20.414643-07:00) is unreadable when you
+    are just trying to tell whether the sync ran recently, which is the single
+    most common reason to look at this page.
+    """
+    if not iso or not isinstance(iso, str):
+        return fallback
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+
+    hour = dt.strftime("%I").lstrip("0") or "12"  # %-I is not portable
+    stamp = f"{dt.strftime('%a %d %b')}, {hour}:{dt.strftime('%M %p')}"
+    name = short_zone(zone) or dt.strftime("%Z")
+    if not name and dt.utcoffset() is not None:
+        total = int(dt.utcoffset().total_seconds() // 60)
+        name = f"UTC{'+' if total >= 0 else '-'}{abs(total) // 60}"
+    return f"{stamp} {name}".strip()
+
+
+def _age_hint(last: Any, now_iso: Any) -> str:
+    """How long ago the last success was, in words. Empty if not computable."""
+    if not isinstance(last, str) or not isinstance(now_iso, str):
+        return ""
+    try:
+        then = datetime.fromisoformat(last)
+        now = datetime.fromisoformat(now_iso)
+    except ValueError:
+        return ""
+    minutes = int((now - then).total_seconds() // 60)
+    if minutes < 0:
+        return ""
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes} min ago"
+    hours = minutes / 60
+    if hours < 24:
+        return f"{hours:.1f} h ago"
+    return f"{hours / 24:.1f} days ago"
 
 
 def _activity_line(act: dict[str, Any]) -> str:
@@ -79,12 +141,25 @@ def build_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
     # -- Sync status ---------------------------------------------------
     blocks.append(heading("Sync status"))
     icon = STATUS_ICON.get(status, "❔")
+    attempt = sync.get("last_attempt")
+    success = sync.get("last_success")
+    tz = sync.get("timezone")
+    updated = human_time(success, zone=tz)
+    age = _age_hint(success, attempt)
     blocks.append(
         callout(
-            f"Status: {status}. Data date {today.get('date') or '-'}. "
-            f"Last success {sync.get('last_success') or 'never'}. "
-            f"Last attempt {sync.get('last_attempt') or '-'}.",
+            f"Last updated: {updated}" + (f"  ({age})" if age else "") + f"  —  {status}",
             emoji=icon,
+        )
+    )
+    blocks.extend(
+        table_rows(
+            [
+                ("Last successful sync", human_time(success, zone=tz)),
+                ("Last attempted sync", human_time(attempt, zone=tz, fallback="-")),
+                ("Data date", today.get("date") or "-"),
+                ("Status", status),
+            ]
         )
     )
     if status != "OK":
@@ -111,6 +186,9 @@ def build_blocks(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
     # -- Today ---------------------------------------------------------
     blocks.append(heading("Today"))
+    # These figures accumulate through the day, so the reading time matters as
+    # much as the numbers when comparing one sync against the next.
+    blocks.append(paragraph(f"Figures as of {human_time(success, zone=tz)}."))
     blocks.extend(
         table_rows(
             [
