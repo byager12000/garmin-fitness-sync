@@ -208,13 +208,45 @@ adb shell dumpsys jobscheduler | grep -A12 "com.termux.api/.apis.JobSchedulerAPI
 
 You want `PERIODIC: interval=+1h0m0s0ms`.
 
-## 8. Afterwards
+## 8. Reboot survival — Termux:Boot is REQUIRED
 
-- **Turn USB debugging back off** in Developer options.
-- **Reboot the phone and check the job survives** — Android does not guarantee
-  periodic jobs persist across reboot. If `termux-job-scheduler --pending`
-  comes back empty afterwards, re-register it (step 6 of the bootstrap), and
-  consider installing Termux:Boot to re-register automatically.
+**Periodic jobs do not survive a reboot.** Confirmed empirically on Android 16:
+after the first restart, `termux-job-scheduler --pending` came back empty and
+the sync had silently stopped. Do not skip this step, and do not assume the job
+persisted — check it.
+
+Install Termux:Boot the same way as the other two APKs (§2, with the verifier
+temporarily off), then launch it once so Android arms it:
+
+```bash
+adb shell monkey -p com.termux.boot -c android.intent.category.LAUNCHER 1
+adb shell dumpsys deviceidle whitelist +com.termux.boot
+```
+
+`bootstrap-phone.sh` writes the hook that does the re-registration, at
+`~/.termux/boot/00-garmin-sync.sh`. It logs to `logs/boot.log`, so after a
+restart you can confirm it fired:
+
+```bash
+adb shell run-as com.termux tail -4 files/home/garmin-fitness-sync/logs/boot.log
+```
+
+You can test the hook without rebooting by running it directly:
+
+```bash
+adb shell run-as com.termux sh files/home/.termux/boot/00-garmin-sync.sh
+```
+
+That only proves the script works, not that Termux:Boot triggers it — for that
+you have to actually reboot and check `--pending` afterwards.
+
+## 9. Afterwards
+
+- **Turn USB debugging back off** in Developer options. Note it also seems to
+  switch itself off on its own after a reboot, which presents convincingly as
+  a dead USB cable.
+- Let it run a day or two. The health check is simply that **Last updated** on
+  the Notion page is never more than about an hour old.
 
 ## Timezone
 
@@ -237,4 +269,5 @@ the only thing syncing, this is a non-issue.
 | `can't create /tmp/...: Permission denied` | Termux has no `/tmp`; use `$TMPDIR` or `$HOME` |
 | `mv: Permission denied` from `/data/local/tmp` | Use `cp`; Termux cannot unlink there |
 | Job registered but never fires | Standby bucket 50, or battery optimisation — step 6 |
+| Sync silently stops after a reboot | Periodic jobs do NOT persist. Termux:Boot + the boot hook — step 8 |
 | Syncs stop after a day or two | Battery optimisation, or the phantom-process killer — step 6 |

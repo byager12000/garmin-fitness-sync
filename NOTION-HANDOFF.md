@@ -210,3 +210,31 @@ Verified 48 blocks, 6 headings, no duplicates, status OK.
 `PHONE-SETUP.md` (the adb procedure that worked, with every gotcha) and
 `bootstrap-phone.sh` (one-shot Termux setup). TERMUX-SETUP.md marked as
 superseded.
+
+---
+
+## 2026-09-23 (later) — reboot finding + readable timestamps
+
+### Reboot: the job did NOT survive
+
+Confirmed empirically. After Ben rebooted, `termux-job-scheduler --pending`
+came back empty — periodic JobScheduler jobs are not persisted on Android 16.
+The battery exemption, standby bucket and phantom-process setting all DID
+survive.
+
+Fixed by installing **Termux:Boot** and adding `~/.termux/boot/00-garmin-sync.sh`,
+which re-registers the job at every boot and logs to `logs/boot.log`.
+Documented in PHONE-SETUP.md §8 and automated in bootstrap-phone.sh.
+
+Worth noting an earlier claim of mine was wrong: I briefly said the job had
+survived, based on a fresh Notion timestamp that was actually my own forced
+run from *before* the reboot. Corrected on checking properly.
+
+### Readable timestamps on the page
+
+Ben pointed out the page had no usable timestamp — it read
+`Last success 2026-09-23T05:37:20.414643-07:00`, which is useless when the
+question is just "did it run recently". Now renders as
+`Wed 23 Sep, 5:54 AM PDT (just now)`, with explicit last-success /
+last-attempt / data-date rows, plus "Figures as of ..." under Today because
+those values accumulate through the day.

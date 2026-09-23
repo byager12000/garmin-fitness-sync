@@ -79,7 +79,33 @@ else
 fi
 chmod +x "$PROJECT/run_sync.sh"
 
-step "6/6 hourly job"
+step "6/7 boot hook"
+# CONFIRMED THE HARD WAY: periodic JobScheduler jobs do NOT survive a reboot
+# on Android 16. After the first restart the job had simply vanished. So
+# Termux:Boot must be installed, and this script re-registers the job at boot.
+# Re-registering an existing job-id is harmless, so this is safe to re-run.
+mkdir -p "$HOME/.termux/boot"
+cat > "$HOME/.termux/boot/00-garmin-sync.sh" <<'BOOT'
+#!/data/data/com.termux/files/usr/bin/sh
+PATH=/data/data/com.termux/files/usr/bin:$PATH
+export PATH
+HOME=/data/data/com.termux/files/home
+export HOME
+LOG="$HOME/garmin-fitness-sync/logs/boot.log"
+mkdir -p "$(dirname "$LOG")"
+echo "$(date -Iseconds) boot: re-registering hourly job" >> "$LOG"
+termux-job-scheduler \
+  --script "$HOME/garmin-fitness-sync/run_sync.sh" \
+  --job-id 1 \
+  --period-ms 3600000 \
+  --network any \
+  --battery-not-low false >> "$LOG" 2>&1
+echo "$(date -Iseconds) boot: exit=$?" >> "$LOG"
+BOOT
+chmod +x "$HOME/.termux/boot/00-garmin-sync.sh"
+echo "boot hook: $HOME/.termux/boot/00-garmin-sync.sh"
+
+step "7/7 hourly job"
 # Android's minimum period is 15 minutes; 1 hour is the V1 target.
 # battery-not-low=false: the job is a few seconds, so it should not be skipped
 # just because the battery dipped.
@@ -100,9 +126,11 @@ Termux side complete.
 
 Still required, and NOT done by this script:
   * credentials: .env and ~/.garminconnect/garmin_tokens.json
-  * battery exemption + standby bucket (adb, from the laptop)
+  * the Termux:Boot APK must be installed, or the boot hook above never
+    runs and the hourly job is lost at the next reboot
+  * battery exemption + standby bucket for termux, termux.api, termux.boot
   * phantom-process monitoring off (adb, from the laptop)
-All three are in PHONE-SETUP.md.
+All of these are in PHONE-SETUP.md.
 
 Verify with:
   cd ~/garmin-fitness-sync && ./run_sync.sh
