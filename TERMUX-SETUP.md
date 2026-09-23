@@ -1,6 +1,13 @@
-# NOTE: superseded by PHONE-SETUP.md, which documents the adb-driven
-# procedure that actually worked. Kept for the manual, on-phone route.
-# Phase 5 — running the sync hourly on Android
+# Phase 5 — running the sync hourly on Android (manual route)
+
+> **Superseded by [PHONE-SETUP.md](PHONE-SETUP.md)**, which documents the
+> adb-driven procedure that was actually used and works. Keep this one only if
+> you want to type everything on the phone itself.
+>
+> Two things below are now known to be wrong: `curl_cffi` **does** build on
+> Termux, so the proot-distro path in §3 is unnecessary; and Tasker is not
+> needed at all — `termux-job-scheduler` from Termux:API handles the hourly
+> trigger.
 
 Target: Samsung Galaxy S24 Ultra, Termux + Tasker.
 
