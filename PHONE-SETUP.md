@@ -238,7 +238,20 @@ adb shell run-as com.termux sh files/home/.termux/boot/00-garmin-sync.sh
 ```
 
 That only proves the script works, not that Termux:Boot triggers it — for that
-you have to actually reboot and check `--pending` afterwards.
+you have to actually reboot.
+
+> **`--pending` lies shortly after a boot.** It returned *empty* a minute after
+> restart even though the hook had fired and the job was registered. The CLI
+> needs the Termux:API service running to answer, and right after boot it is
+> not. **Ask Android instead** — that is authoritative:
+>
+> ```bash
+> adb shell dumpsys jobscheduler | grep -A8 "JOB #.*com.termux.api"
+> ```
+>
+> You want `PERIODIC: interval=+1h0m0s0ms`. Do not conclude the job is missing
+> from an empty `--pending` alone; check `logs/boot.log` and the dumpsys output
+> before re-registering anything.
 
 ## 9. Afterwards
 

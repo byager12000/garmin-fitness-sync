@@ -238,3 +238,29 @@ question is just "did it run recently". Now renders as
 `Wed 23 Sep, 5:54 AM PDT (just now)`, with explicit last-success /
 last-attempt / data-date rows, plus "Figures as of ..." under Today because
 those values accumulate through the day.
+
+---
+
+## 2026-09-23 — REBOOT SURVIVAL VERIFIED
+
+Full chain confirmed on a real restart:
+
+```
+05:58      phone rebooted
+05:59:07   Termux:Boot fired ~/.termux/boot/00-garmin-sync.sh
+05:59:07   job re-registered with Android
+05:59:13   sync ran
+05:59      Notion page updated ("Last updated: Wed 23 Sep, 5:59 AM PDT")
+```
+
+Android's own `dumpsys jobscheduler` confirms
+`JOB #u0a518/1 ... PERIODIC: interval=+1h0m0s0ms`.
+
+**Gotcha recorded:** `termux-job-scheduler --pending` returned EMPTY a minute
+after boot even though the job was registered — the CLI needs the Termux:API
+service running to answer, and right after boot it is not. `dumpsys
+jobscheduler` is the authoritative check. This nearly caused a false "the fix
+did not work" conclusion.
+
+V1 is functionally complete. Remaining is Ben's acceptance test: record an
+activity, do nothing, confirm it appears on Fitness Live.
